@@ -1,51 +1,46 @@
-from fastapi import APIRouter,Depends
-from app.schemas.auth import LoginRequest,RegisterRequest
+from fastapi import APIRouter, Depends
+from app.schemas.auth import LoginRequest, RegisterRequest
 from app.schemas.user import LoginResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.utils.jwt import create_access_token
+from app.utils.security import hash_password, verify_password
+from app.utils.response import success, error
 
-router = APIRouter(prefix='/auth',tags=['权限验证'])
+router = APIRouter(prefix='/auth', tags=['权限验证'])
+
 
 @router.post("/login")
-def login(data:LoginRequest,db:Session = Depends(get_db)):
+def login(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == data.username).first()
 
-    if not user or user.password != data.password:
-        return {'code':400,'message':'账号或密码错误'}
+    if not user or not verify_password(data.password, user.password):
+        return error('账号或密码错误')
 
-    #创建token
+    # 创建token
     token = create_access_token(user.id)
 
-    # 返回信息
-    return {
-        'code':200,
-        'message':'登陆成功',
-        'data':{'token':token,'user':LoginResponse.model_validate(user)}
-    }
+    return success({
+        'token': token,
+        'user': LoginResponse.model_validate(user)
+    }, '登陆成功')
 
 
 @router.post("/register")
-def register(
-    data: RegisterRequest,
-    db: Session = Depends(get_db)
-):
+def register(data: RegisterRequest, db: Session = Depends(get_db)):
     # 1. 检查用户名是否已经存在
     user = db.query(User).filter(User.username == data.username).first()
 
     if user:
-        return {
-            "code": 400,
-            "message": "用户名已存在"
-        }
+        return error('用户名已存在')
 
-    # 2. 创建用户
+    # 2. 创建用户（公开注册固定为学生角色）
     user = User(
         username=data.username,
-        password=data.password,
+        password=hash_password(data.password),
         name=data.name,
-        role=data.role,
+        role='student',
         email=data.email,
         phone=data.phone
     )
@@ -55,7 +50,4 @@ def register(
     db.commit()
     db.refresh(user)
 
-    return {
-        "code": 200,
-        "message": "注册成功"
-    }
+    return success(message='注册成功')
